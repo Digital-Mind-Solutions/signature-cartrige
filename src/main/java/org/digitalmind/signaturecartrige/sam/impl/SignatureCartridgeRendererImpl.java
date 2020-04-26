@@ -1,6 +1,6 @@
 package org.digitalmind.signaturecartrige.sam.impl;
 
-import org.apache.pdfbox.io.IOUtils;
+import org.apache.commons.io.IOUtils;
 import org.digitalmind.signaturecartrige.dto.SignatureCartridgeRequest;
 import org.digitalmind.signaturecartrige.dto.SignatureCartridgeResponse;
 import org.digitalmind.signaturecartrige.exception.PdfUtilException;
