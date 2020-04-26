@@ -30,7 +30,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import static org.digitalmind.signaturecartrige.config.PdfUtilModuleConfig.ENABLED;
+import static org.digitalmind.signaturecartrige.config.SignatureCartrigeModuleConfig.ENABLED;
 
 @Service
 @ConditionalOnProperty(name = ENABLED, havingValue = "true")

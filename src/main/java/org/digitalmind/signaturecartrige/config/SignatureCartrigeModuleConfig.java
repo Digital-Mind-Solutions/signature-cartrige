@@ -6,7 +6,7 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
-import static org.digitalmind.signaturecartrige.config.PdfUtilModuleConfig.*;
+import static org.digitalmind.signaturecartrige.config.SignatureCartrigeModuleConfig.*;
 
 @Configuration
 @ComponentScan({
@@ -16,7 +16,7 @@ import static org.digitalmind.signaturecartrige.config.PdfUtilModuleConfig.*;
 @EnableCaching
 @ConditionalOnProperty(name = ENABLED, havingValue = "true")
 @Slf4j
-public class PdfUtilModuleConfig {
+public class SignatureCartrigeModuleConfig {
     public static final String MODULE = "signaturecartrige";
     public static final String PREFIX = "application.modules.common." + MODULE;
     public static final String ENABLED = PREFIX + ".enabled";
