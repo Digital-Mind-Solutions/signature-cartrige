@@ -50,7 +50,6 @@ dependencies {
     implementation 'org.beryx:awt-color-factory:1.0.1'
     implementation 'commons-io:commons-io:2.6'
 
-    implementation "org.digitalmind.buildingblocks.core:jpaauditor:1.0.0"
     implementation "io.springfox:springfox-swagger-ui:${springfoxVersion}"
     implementation "io.springfox:springfox-swagger2:${springfoxVersion}"
     implementation "io.swagger:swagger-annotations:${swaggerVersion}"
