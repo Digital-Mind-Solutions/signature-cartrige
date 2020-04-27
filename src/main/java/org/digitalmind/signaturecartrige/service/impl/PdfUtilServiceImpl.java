@@ -2,12 +2,16 @@ package org.digitalmind.signaturecartrige.service.impl;
 
 import com.lowagie.text.PageSize;
 import com.lowagie.text.pdf.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
 import org.beryx.awt.color.ColorFactory;
 import org.digitalmind.signaturecartrige.dto.*;
 import org.digitalmind.signaturecartrige.enumeration.SignatureFieldAppearance;
 import org.digitalmind.signaturecartrige.exception.PdfUtilException;
+import org.digitalmind.signaturecartrige.exception.PdfUtilRuntimeException;
 import org.digitalmind.signaturecartrige.sam.SignatureCartridgeRenderer;
 import org.digitalmind.signaturecartrige.sam.impl.SignatureCartridgeRendererImpl;
 import org.digitalmind.signaturecartrige.service.PdfUtilService;
@@ -19,7 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -40,6 +44,14 @@ public class PdfUtilServiceImpl implements PdfUtilService {
     private static final int IMAGE_TYPE = BufferedImage.TYPE_INT_ARGB;
     private Map<SignatureConfigurationRequest, SignatureConfiguration> signatureConfigurationMap = new ConcurrentHashMap<>();
     private Map<String, Font> fontMap = new ConcurrentHashMap<>();
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Data
+    public static class Tuple {
+        private int a;
+        private int b;
+    }
 
     @Override
     public InspectContentResponse inspect(InspectContentRequest request) throws IOException {
@@ -213,33 +225,6 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         return response;
     }
 
-//    @Override
-//    public PrivateContentResponse hasPrivateContent(PrivateContentRequest request) throws IOException {
-//        Assert.notNull(request.getInputStream(), this.getClass().getSimpleName() + ".validateSignatureFields: Pdf stream must not be null");
-//        PrivateContentResponse response = new PrivateContentResponse();
-//        boolean privateFlag = false;
-//        try (PdfReader reader = new PdfReader(request.getInputStream())) {
-//            AcroFields acroFields = reader.getAcroFields();
-//            Set<String> fieldNames = acroFields.getAllFields().keySet();
-//            if (request.getPrivateFields() != null && fieldNames.size() > 0) {
-//                for (String fieldNameOrPattern : request.getPrivateFields()) {
-//                    Set<String> fieldNamesInPdf = null;
-//                    if (fieldNameOrPattern.contains("*") || fieldNameOrPattern.contains("?")) {
-//                        fieldNamesInPdf = fieldNames.stream().filter(fieldName -> match(fieldNameOrPattern, fieldName)).collect(Collectors.toSet());
-//                    } else {
-//                        fieldNamesInPdf = fieldNames.stream().filter(fieldName -> fieldNameOrPattern.equals(fieldName)).collect(Collectors.toSet());
-//                    }
-//                    if (fieldNamesInPdf != null && fieldNamesInPdf.size() > 0) {
-//                        privateFlag = true;
-//                        break;
-//                    }
-//                }
-//            }
-//        }
-//        response.setPrivateFlag(privateFlag);
-//        return response;
-//    }
-
     //https://www.geeksforgeeks.org/wildcard-character-matching/
     //https://www.geeksforgeeks.org/wildcard-pattern-matching-three-symbols/?ref=rp
     public boolean match(String fieldNameOrPattern, String fieldName) {
@@ -301,6 +286,218 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         SignatureCartridgeResponse signatureCartridgeResponse = null;
         Integer finalWidth = width != null ? width : signatureCartridgeRequest.getConfiguration().getNewWidth();
         Integer finalHeight = height != null ? height : signatureCartridgeRequest.getConfiguration().getNewHeight();
+        try {
+            ByteArrayOutputStream signatureImageStream = new ByteArrayOutputStream();
+            ByteArrayResource resource;
+            BufferedImage signatureImage = null;
+            SignatureConfiguration configuration = null;
+            try {
+                configuration = getSignatureConfiguration(signatureCartridgeRequest.getConfiguration());
+            } catch (IOException | FontFormatException e) {
+                throw new PdfUtilException("Unable to load signature configuration", e);
+            }
+            SignatureFieldAppearance signatureFieldAppearance = configuration.getSignatureFieldAppearance();
+            int cummulatedHeight = 0;
+            signatureImage = createImage(configuration.getBackgroundColor(), configuration.getTransparentColor(), finalWidth, finalHeight);
+            RenderingHints renderingHints = new RenderingHints(new HashMap<>());
+            renderingHints.put(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+            renderingHints.put(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            renderingHints.put(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
+            renderingHints.put(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+            renderingHints.put(RenderingHints.KEY_DITHERING, RenderingHints.VALUE_DITHER_ENABLE);
+            renderingHints.put(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+            renderingHints.put(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            renderingHints.put(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            renderingHints.put(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+
+            //----------------------------------------------------------------------------------------------------------
+            TextRenderDetails sessionRenderDetails = null;
+            if (signatureFieldAppearance.hasSession()) {
+                sessionRenderDetails = calcRenderDetails(
+                        configuration.getSessionLabel() + signatureCartridgeRequest.getSession(),
+                        configuration.getSessionFontType(),
+                        configuration.getBackgroundColor(),
+                        configuration.getTransparentColor(),
+                        configuration.getSessionColor() != null ? configuration.getSessionColor() : configuration.getForegroundColor(),
+                        finalWidth, finalHeight
+                );
+                cummulatedHeight += sessionRenderDetails.getHeight();
+            }
+
+            //----------------------------------------------------------------------------------------------------------
+            TextRenderDetails traceRenderDetails = null;
+            if (signatureFieldAppearance.hasTrace()) {
+                traceRenderDetails = calcRenderDetails(
+                        signatureCartridgeRequest.getTrace(),
+                        configuration.getTraceFontType(),
+                        configuration.getBackgroundColor(),
+                        configuration.getTransparentColor(),
+                        configuration.getTraceColor() != null ? configuration.getTraceColor() : configuration.getForegroundColor(),
+                        finalWidth, finalHeight
+                );
+                cummulatedHeight += traceRenderDetails.getHeight();
+            }
+
+            //----------------------------------------------------------------------------------------------------------
+            TextRenderDetails dateRenderDetails = null;
+            if (signatureFieldAppearance.hasDate()) {
+                dateRenderDetails = calcRenderDetails(
+                        configuration.getDateLabel() + signatureCartridgeRequest.getDate(),
+                        configuration.getDateFontType(),
+                        configuration.getBackgroundColor(),
+                        configuration.getTransparentColor(),
+                        configuration.getDateColor() != null ? configuration.getDateColor() : configuration.getForegroundColor(),
+                        finalWidth, finalHeight
+                );
+                cummulatedHeight += dateRenderDetails.getHeight();
+            }
+
+            //----------------------------------------------------------------------------------------------------------
+            BufferedImage bufferedImageSignature = null;
+            boolean bufferedImageSignatureNeedsCorrection = true;
+            if (signatureFieldAppearance.hasSignature()) {
+                //this field can be text or image
+                Integer signatureHeight = finalHeight != null && (finalHeight - cummulatedHeight) >= 0
+                        ? finalHeight - cummulatedHeight
+                        : finalHeight;
+                if (signatureCartridgeRequest.getSignature() instanceof String) {
+                    TextRenderDetails signatureRenderDetails = null;
+                    signatureRenderDetails = calcRenderDetails(
+                            (String) signatureCartridgeRequest.getSignature(),
+                            configuration.getSignatureFontType(),
+                            configuration.getBackgroundColor(),
+                            configuration.getTransparentColor(),
+                            configuration.getSignatureColor() != null ? configuration.getSignatureColor() : configuration.getForegroundColor(),
+                            finalWidth, signatureHeight
+                    );
+                    int dx = finalWidth > signatureRenderDetails.getWidth() ? (finalWidth - signatureRenderDetails.getWidth()) / 2 : 0;
+                    int dy = signatureHeight > signatureRenderDetails.getHeight() ? (signatureHeight - signatureRenderDetails.getHeight()) / 2 : 0;
+
+                    bufferedImageSignature = createImage(configuration.getBackgroundColor(), configuration.getTransparentColor(), finalWidth, signatureHeight);
+                    writeImage(bufferedImageSignature, (String) signatureCartridgeRequest.getSignature(), dx, dy, signatureRenderDetails, renderingHints);
+
+                    bufferedImageSignatureNeedsCorrection = false;
+                }
+
+
+                if (signatureCartridgeRequest.getSignature() instanceof MultipartFile) {
+                    try {
+                        bufferedImageSignature = ImageIO.read(((MultipartFile) signatureCartridgeRequest.getSignature()).getInputStream());
+                    } catch (IOException e) {
+                        throw new PdfUtilException("Unable to load signature file into a buffered image", e);
+                    }
+                }
+
+                if (signatureCartridgeRequest.getSignature() instanceof InputStream) {
+                    try {
+                        bufferedImageSignature = ImageIO.read((InputStream) signatureCartridgeRequest.getSignature());
+                    } catch (IOException e) {
+                        throw new PdfUtilException("Unable to load signature input stream into a buffered image", e);
+                    }
+                }
+
+                if (signatureCartridgeRequest.getSignature() instanceof File) {
+                    try {
+                        bufferedImageSignature = ImageIO.read((File) signatureCartridgeRequest.getSignature());
+                    } catch (IOException e) {
+                        throw new PdfUtilException("Unable to load signature file into a buffered image", e);
+                    }
+                }
+
+                if (bufferedImageSignature == null) {
+                    throw new PdfUtilException("Unsupported signature content request signature type");
+                } else {
+                    if (bufferedImageSignatureNeedsCorrection) {
+                        bufferedImageSignature = getCroppedImage(bufferedImageSignature, configuration.getBackgroundColor(), 5);
+                        bufferedImageSignature = scaleImage(bufferedImageSignature, finalWidth, signatureHeight);
+
+                        int dx = finalWidth > bufferedImageSignature.getWidth() ? (finalWidth - bufferedImageSignature.getWidth()) / 2 : 0;
+                        int dy = signatureHeight > bufferedImageSignature.getHeight() ? (signatureHeight - bufferedImageSignature.getHeight()) / 2 : 0;
+
+                        BufferedImage baseSignature = createImage(configuration.getBackgroundColor(), configuration.getTransparentColor(), finalWidth, signatureHeight);
+                        overlayImage(baseSignature, bufferedImageSignature, dx, dy);
+                        bufferedImageSignature = baseSignature;
+
+                    }
+                    if (finalWidth != null || finalHeight != null) {
+                        bufferedImageSignature = scaleImage(bufferedImageSignature, finalWidth, signatureHeight);
+                    }
+                }
+            }
+
+
+            //----------------------------------------------------------------------------------------------------------
+            //write cartridge
+            //----------------------------------------------------------------------------------------------------------
+
+            if (signatureFieldAppearance.hasSession()) {
+                writeImage(signatureImage,
+                        configuration.getSessionLabel() + signatureCartridgeRequest.getSession(),
+                        0, 0,
+                        sessionRenderDetails,
+                        renderingHints
+                );
+            }
+            if (signatureFieldAppearance.hasTrace()) {
+                writeImage(signatureImage,
+                        signatureCartridgeRequest.getTrace(),
+                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + bufferedImageSignature.getHeight(),
+                        traceRenderDetails,
+                        renderingHints
+                );
+            }
+            if (signatureFieldAppearance.hasDate()) {
+                writeImage(signatureImage,
+                        configuration.getDateLabel() + signatureCartridgeRequest.getDate(),
+                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + bufferedImageSignature.getHeight() + (traceRenderDetails != null ? traceRenderDetails.getHeight() : 0),
+                        dateRenderDetails,
+                        renderingHints
+                );
+            }
+
+            if (configuration.getSignatureFieldAppearance().hasBorder()) {
+                Graphics2D graphics2D = signatureImage.createGraphics();
+                Stroke stroke = new BasicStroke(2f, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_ROUND);
+                graphics2D.setColor(configuration.getBorderColor());
+                graphics2D.setStroke(stroke);
+                int circle = 7;
+                int top = sessionRenderDetails.getHeight() / 2;
+                int left = 10;
+                graphics2D.drawOval(configuration.getSessionFontType().getLeft() - 2 * circle - 1, top - circle / 2, circle, circle);
+                graphics2D.drawLine(configuration.getSessionFontType().getLeft() - 2 * circle, top, left, top);
+                graphics2D.drawLine(left, top, left, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle);
+                graphics2D.drawLine(left, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle, finalWidth - circle, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle);
+                graphics2D.drawOval(finalWidth - circle, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle - circle / 2, circle, circle);
+                graphics2D.dispose();
+            }
+
+            overlayImage(signatureImage, bufferedImageSignature, 0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0));
+
+            try {
+                ImageIO.write(signatureImage, configuration.getImageType().name(), signatureImageStream);
+            } catch (IOException e) {
+                throw new PdfUtilException("Unable to write signature file into an image stream", e);
+            }
+            SignatureConfiguration finalConfiguration = configuration;
+            resource = new ByteArrayResource(signatureImageStream.toByteArray()) {
+                @Override
+                public String getFilename() {
+                    return signatureCartridgeRequest.getSession() + "." + finalConfiguration.getImageType().name();
+                }
+            };
+
+            String contentType = URLConnection.guessContentTypeFromName(resource.getFilename());
+            signatureCartridgeResponse = SignatureCartridgeResponse.builder().resource(resource).contentType(contentType).build();
+
+        } finally {
+        }
+        return signatureCartridgeResponse;
+    }
+
+    public SignatureCartridgeResponse createSignatureImageOld(SignatureCartridgeRequest signatureCartridgeRequest, Integer width, Integer height) throws PdfUtilException {
+        SignatureCartridgeResponse signatureCartridgeResponse = null;
+        Integer finalWidth = width != null ? width : signatureCartridgeRequest.getConfiguration().getNewWidth();
+        Integer finalHeight = height != null ? height : signatureCartridgeRequest.getConfiguration().getNewHeight();
 
         int cummulatedHeight = 0;
         try {
@@ -324,7 +521,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             if (signatureFieldAppearance.hasSession()) {
                 bufferedImageSession = toImage(
                         configuration.getSessionLabel() + signatureCartridgeRequest.getSession(),
-                        configuration.getSessionFont(), configuration.getBackgroundColor(), configuration.getSessionColor() != null ? configuration.getSessionColor() : configuration.getForegroundColor(),
+                        configuration.getSessionFontType(),
+                        configuration.getBackgroundColor(),
+                        configuration.getTransparentColor(),
+                        configuration.getSessionColor() != null ? configuration.getSessionColor() : configuration.getForegroundColor(),
                         configuration.getSessionFontType().getLeft(), configuration.getSessionFontType().getRight(), configuration.getSessionFontType().getTop(), configuration.getSessionFontType().getBottom(),
                         finalWidth, null,
                         null, null
@@ -339,7 +539,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             if (signatureFieldAppearance.hasTrace()) {
                 bufferedImageTrace = toImage(
                         signatureCartridgeRequest.getTrace(),
-                        configuration.getTraceFont(), configuration.getBackgroundColor(), configuration.getTraceColor() != null ? configuration.getTraceColor() : configuration.getForegroundColor(),
+                        configuration.getTraceFontType(),
+                        configuration.getBackgroundColor(),
+                        configuration.getTransparentColor(),
+                        configuration.getTraceColor() != null ? configuration.getTraceColor() : configuration.getForegroundColor(),
                         configuration.getTraceFontType().getLeft(), configuration.getTraceFontType().getRight(), configuration.getTraceFontType().getTop(), configuration.getTraceFontType().getBottom(),
                         finalWidth, null,
                         null, null
@@ -352,7 +555,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             if (signatureFieldAppearance.hasDate()) {
                 bufferedImageDate = toImage(
                         configuration.getDateLabel() + signatureCartridgeRequest.getDate(),
-                        configuration.getDateFont(), configuration.getBackgroundColor(), configuration.getDateColor() != null ? configuration.getDateColor() : configuration.getForegroundColor(),
+                        configuration.getDateFontType(),
+                        configuration.getBackgroundColor(),
+                        configuration.getTransparentColor(),
+                        configuration.getDateColor() != null ? configuration.getDateColor() : configuration.getForegroundColor(),
                         configuration.getDateFontType().getLeft(), configuration.getDateFontType().getRight(), configuration.getDateFontType().getTop(), configuration.getDateFontType().getBottom(),
                         finalWidth, null,
                         null, null
@@ -371,7 +577,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 if (signatureCartridgeRequest.getSignature() instanceof String) {
                     bufferedImageSignature = toImage(
                             (String) signatureCartridgeRequest.getSignature(),
-                            configuration.getSignatureFont(), configuration.getBackgroundColor(), configuration.getSignatureColor() != null ? configuration.getSignatureColor() : configuration.getForegroundColor(),
+                            configuration.getSignatureFontType(),
+                            configuration.getBackgroundColor(),
+                            configuration.getTransparentColor(),
+                            configuration.getSignatureColor() != null ? configuration.getSignatureColor() : configuration.getForegroundColor(),
                             configuration.getSignatureFontType().getLeft(), configuration.getSignatureFontType().getRight(), configuration.getSignatureFontType().getTop(), configuration.getSignatureFontType().getBottom(),
                             finalWidth, signatureHeight,
                             finalWidth, signatureHeight
@@ -408,7 +617,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                     throw new PdfUtilException("Unsupported signature content request signature type");
                 } else {
                     if (bufferedImageSignatureNeedsCorrection) {
-                        bufferedImageSignature = offsetImage(bufferedImageSignature, configuration.getBackgroundColor(), configuration.getSignatureFontType().getLeft(), configuration.getSignatureFontType().getRight(), configuration.getSignatureFontType().getTop(), configuration.getSignatureFontType().getBottom());
+                        bufferedImageSignature = offsetImage(bufferedImageSignature, configuration.getBackgroundColor(), configuration.getTransparentColor(), configuration.getSignatureFontType().getLeft(), configuration.getSignatureFontType().getRight(), configuration.getSignatureFontType().getTop(), configuration.getSignatureFontType().getBottom());
                     }
                     if (finalWidth != null || finalHeight != null) {
                         bufferedImageSignature = scaleImage(bufferedImageSignature, finalWidth, finalHeight);
@@ -421,22 +630,48 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             //----------------------------------------------------------------------------------------------------------
             //----------------------------------------------------------------------------------------------------------
 
+            int signatureCartridgeWidth = 0;
+            int signatureCartridgeHeight = 0;
+            ArrayList<Integer> layers = new ArrayList<Integer>();
             if (bufferedImageSession != null) {
                 bufferedImageList.add(bufferedImageSession);
+                layers.add(1);
+                if (signatureCartridgeWidth < bufferedImageSession.getWidth()) {
+                    signatureCartridgeWidth = bufferedImageSession.getWidth();
+                }
+                signatureCartridgeHeight += bufferedImageSession.getHeight();
             }
             if (bufferedImageSignature != null) {
+                layers.add(4);
                 bufferedImageList.add(bufferedImageSignature);
+                if (signatureCartridgeWidth < bufferedImageSignature.getWidth()) {
+                    signatureCartridgeWidth = bufferedImageSignature.getWidth();
+                }
+                signatureCartridgeHeight += bufferedImageSignature.getHeight();
             }
             if (bufferedImageTrace != null) {
+                layers.add(3);
                 bufferedImageList.add(bufferedImageTrace);
+                if (signatureCartridgeWidth < bufferedImageTrace.getWidth()) {
+                    signatureCartridgeWidth = bufferedImageTrace.getWidth();
+                }
+                signatureCartridgeHeight += bufferedImageTrace.getHeight();
             }
             if (bufferedImageDate != null) {
+                layers.add(2);
                 bufferedImageList.add(bufferedImageDate);
+                if (signatureCartridgeWidth < bufferedImageDate.getWidth()) {
+                    signatureCartridgeWidth = bufferedImageDate.getWidth();
+                }
+                signatureCartridgeHeight += bufferedImageDate.getHeight();
             }
-            signatureImage = joinImagesVertical(0, configuration.getBackgroundColor(), bufferedImageList.toArray(new BufferedImage[bufferedImageList.size()]));
 
+            //--------------------------------------------------------------------------------------------------------------
+            BufferedImage bufferedImageBorder = null;
             if (configuration.getSignatureFieldAppearance().hasBorder()) {
-                Graphics2D graphics2D = signatureImage.createGraphics();
+                layers.add(0);
+                bufferedImageBorder = new BufferedImage(signatureCartridgeWidth, signatureCartridgeHeight, IMAGE_TYPE);
+                Graphics2D graphics2D = bufferedImageBorder.createGraphics();
                 Stroke stroke = new BasicStroke(2f, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_ROUND);
                 graphics2D.setColor(configuration.getBorderColor());
                 graphics2D.setStroke(stroke);
@@ -446,12 +681,29 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 graphics2D.drawOval(configuration.getSessionFontType().getLeft() - 2 * circle - 1, top - 3, circle, circle);
                 graphics2D.drawLine(configuration.getSessionFontType().getLeft() - 2 * circle, top, left, top);
                 graphics2D.drawLine(left, top, left, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle);
-                graphics2D.drawLine(left, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle, signatureImage.getWidth() - circle, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle);
-                graphics2D.drawOval(signatureImage.getWidth() - circle, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle - 3, circle, circle);
+                graphics2D.drawLine(left, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle, signatureCartridgeWidth - circle, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle);
+                graphics2D.drawOval(signatureCartridgeWidth - circle, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle - 3, circle, circle);
                 graphics2D.dispose();
+                if (configuration.getTransparentColor() != null) {
+                    bufferedImageBorder = makeTransparent(bufferedImageBorder, configuration.getTransparentColor());
+                }
+                bufferedImageList.add(bufferedImageBorder);
             }
 
+
+            signatureImage = joinImagesVerticalLayers(
+                    0,
+                    configuration.getBackgroundColor(), configuration.getTransparentColor(),
+                    bufferedImageList.toArray(new BufferedImage[bufferedImageList.size()]),
+                    layers.toArray(new Integer[layers.size()])
+            );
+
+
             //signatureImage = scaleImage(signatureImage, configuration.getNewWidth(), configuration.getNewHeight());
+
+            if (configuration.getTransparentColor() != null) {
+                signatureImage = makeTransparent(signatureImage, configuration.getTransparentColor());
+            }
 
             try {
                 ImageIO.write(signatureImage, configuration.getImageType().name(), signatureImageStream);
@@ -475,8 +727,199 @@ public class PdfUtilServiceImpl implements PdfUtilService {
     }
 
 
+    //------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------
+
+    public BufferedImage createImage(Color backgroundColor, Color transparentColor, int width, int height) {
+        BufferedImage bufferedImage = new BufferedImage(width, height, IMAGE_TYPE);
+        Graphics2D graphics2D = bufferedImage.createGraphics();
+        if (backgroundColor != null) {
+            if (transparentColor == null || !transparentColor.equals(backgroundColor)) {
+                graphics2D.setColor(backgroundColor);
+                graphics2D.fillRect(0, 0, width, height);
+            }
+        }
+        if (transparentColor != null) {
+            bufferedImage = makeTransparent(bufferedImage, transparentColor);
+        }
+        return bufferedImage;
+    }
+
+    public BufferedImage makeTransparent(final BufferedImage image, final Color transparentColor) {
+        final ImageFilter filter = new RGBImageFilter() {
+            // the color we are looking for (white)... Alpha bits are set to opaque
+            public int markerRGB = transparentColor.getRGB() | 0xFFFFFFFF;
+
+            public final int filterRGB(final int x, final int y, final int rgb) {
+                if ((rgb | 0xFF000000) == markerRGB) {
+                    // Mark the alpha bits as zero - transparent
+                    return 0x00FFFFFF & rgb;
+                } else {
+                    // nothing to do
+                    return rgb;
+                }
+            }
+        };
+        final ImageProducer ip = new FilteredImageSource(image.getSource(), filter);
+        return toBufferedImage(Toolkit.getDefaultToolkit().createImage(ip));
+    }
+
+    public TextRenderDetails calcRenderDetails(
+            String line, FontType fontType,
+            Color backgroundColor, Color transparentColor, Color foregroundColor,
+            Integer maxWidth, Integer maxHeight
+    ) {
+        return calcRenderDetails(Arrays.asList(line), fontType,
+                backgroundColor, transparentColor, foregroundColor,
+                maxWidth, maxHeight);
+    }
+
+    public TextRenderDetails calcRenderDetails(
+            List<String> lines, FontType fontType,
+            Color backgroundColor, Color transparentColor, Color foregroundColor,
+            Integer maxWidth, Integer maxHeight
+    ) {
+        TextRenderDetails textRenderDetails = new TextRenderDetails();
+        BufferedImage helperImage = new BufferedImage(1, 1, IMAGE_TYPE);
+        Graphics2D graphics2D = helperImage.createGraphics();
+        Font font;
+        FontMetrics fontMetrics;
+        float size = fontType.getSize();
+        int width;
+        int height;
+        do {
+            font = getFont(fontType.getName(), fontType.getStyle(), size);
+            graphics2D.setFont(font);
+            fontMetrics = graphics2D.getFontMetrics();
+            width = 0;
+            height = (fontMetrics.getHeight() + fontType.getTop() + fontType.getBottom()) * lines.size();
+            for (String line : lines) {
+                int lineWidth = fontMetrics.stringWidth(line + " ") + fontType.getLeft() + fontType.getRight();
+                if (lineWidth > width) {
+                    width = lineWidth;
+                }
+            }
+            size--;
+        } while (((maxWidth != null && width > maxWidth) || (maxHeight != null && height > maxHeight)) && size > 0);
+        graphics2D.dispose();
+
+        int newWidth = width;
+        int newHeight = height;
+
+        FontType fontTypeReturn = new FontType(fontType);
+        fontTypeReturn.setSize(++size);
+        textRenderDetails.setFontType(fontTypeReturn);
+        textRenderDetails.setWidth(newWidth);
+        textRenderDetails.setHeight(newHeight);
+        textRenderDetails.setBackgroundColor(backgroundColor);
+        textRenderDetails.setTransparentColor(transparentColor);
+        textRenderDetails.setForegroundColor(foregroundColor);
+        return textRenderDetails;
+    }
+
+    public void writeImage(BufferedImage bufferedImage, String line, int x, int y, TextRenderDetails textRenderDetails, RenderingHints renderingHints) {
+        writeImage(bufferedImage, Arrays.asList(line), x, y, textRenderDetails, renderingHints);
+    }
+
+    public void writeImage(BufferedImage bufferedImage, List<String> lines, int x, int y, TextRenderDetails textRenderDetails, RenderingHints renderingHints) {
+        Graphics2D graphics2D = bufferedImage.createGraphics();
+        if (textRenderDetails.getBackgroundColor() != null) {
+            if (textRenderDetails.getTransparentColor() == null || !textRenderDetails.getTransparentColor().equals(textRenderDetails.getBackgroundColor())) {
+                graphics2D.setColor(textRenderDetails.getBackgroundColor());
+                graphics2D.fillRect(x, y, textRenderDetails.getWidth() + x, textRenderDetails.getHeight() + y);
+            }
+        }
+        if (renderingHints != null && renderingHints.size() > 0) {
+            graphics2D.setRenderingHints(renderingHints);
+        }
+        Font font = createFont(textRenderDetails.getFontType());
+        graphics2D.setFont(font);
+        FontMetrics fontMetrics = graphics2D.getFontMetrics();
+        graphics2D.setColor(textRenderDetails.getForegroundColor());
+        int yPos = fontMetrics.getAscent() + y;
+        for (String line : lines) {
+            yPos += textRenderDetails.getFontType().getTop();
+            graphics2D.drawString(line, textRenderDetails.getFontType().getLeft() + x, yPos);
+            yPos += (fontMetrics.getHeight() + textRenderDetails.getFontType().getBottom());
+        }
+        graphics2D.dispose();
+    }
+
+
     public BufferedImage toImage(
-            List<String> lines, Font font, Color backgroundColor, Color foregroundColor,
+            List<String> lines, FontType fontType, Color backgroundColor, Color transparentColor, Color foregroundColor,
+            int left, int right, int top, int bottom,
+            Integer maxWidth, Integer maxHeight,
+            Integer minWidth, Integer minHeight
+    ) {
+        BufferedImage helperImage = new BufferedImage(1, 1, IMAGE_TYPE);
+        Graphics2D graphics2D = helperImage.createGraphics();
+        Font font;
+        FontMetrics fontMetrics;
+        float size = fontType.getSize();
+        int width;
+        int height;
+        do {
+            font = getFont(fontType.getName(), fontType.getStyle(), size);
+            graphics2D.setFont(font);
+            fontMetrics = graphics2D.getFontMetrics();
+            width = 0;
+            height = (fontMetrics.getHeight() + top + bottom) * lines.size();
+            for (String line : lines) {
+                int lineWidth = fontMetrics.stringWidth(line + " ") + left + right;
+                if (lineWidth > width) {
+                    width = lineWidth;
+                }
+            }
+            size--;
+        } while (((maxWidth != null && width > maxWidth) || (maxHeight != null && height > maxHeight)) && size > 4);
+        graphics2D.dispose();
+
+        int newWidth = minWidth != null ? Math.max(minWidth, width) : width;
+        int newHeight = minHeight != null ? Math.max(minHeight, height) : height;
+        newWidth = maxWidth != null ? Math.max(maxWidth, width) : width;
+        newHeight = maxHeight != null ? Math.max(maxHeight, height) : height;
+
+        BufferedImage finalImg = new BufferedImage(newWidth, newHeight, IMAGE_TYPE);
+        graphics2D = finalImg.createGraphics();
+        if (backgroundColor != null) {
+            if (transparentColor == null || !transparentColor.equals(backgroundColor)) {
+                graphics2D.setColor(backgroundColor);
+                graphics2D.fillRect(0, 0, newWidth, newHeight);
+            }
+        }
+        graphics2D.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+        graphics2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        graphics2D.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+        graphics2D.setRenderingHint(RenderingHints.KEY_DITHERING, RenderingHints.VALUE_DITHER_ENABLE);
+        graphics2D.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+        graphics2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        graphics2D.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        graphics2D.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        graphics2D.setFont(font);
+        fontMetrics = graphics2D.getFontMetrics();
+        graphics2D.setColor(foregroundColor);
+        int y = fontMetrics.getAscent();
+        for (String line : lines) {
+            y += top;
+            graphics2D.drawString(line, left, y);
+            y += (fontMetrics.getHeight() + bottom);
+        }
+        graphics2D.dispose();
+        int scaledWidth = maxWidth != null ? maxWidth : newWidth;
+        int scaledHeight = maxHeight != null ? maxHeight : newHeight;
+        finalImg = scaleImage(finalImg, scaledWidth, scaledHeight);
+
+        if (transparentColor != null) {
+            finalImg = makeTransparent(finalImg, transparentColor);
+        }
+        return finalImg;
+    }
+
+    public BufferedImage toImage(
+            List<String> lines, Font font, Color backgroundColor, Color transparentColor, Color foregroundColor,
             int left, int right, int top, int bottom,
             Integer maxWidth, Integer maxHeight,
             Integer minWidth, Integer minHeight
@@ -504,8 +947,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         BufferedImage finalImg = new BufferedImage(newWidth, newHeight, IMAGE_TYPE);
         graphics2D = finalImg.createGraphics();
         if (backgroundColor != null) {
-            graphics2D.setColor(backgroundColor);
-            graphics2D.fillRect(0, 0, newWidth, newHeight);
+            if (transparentColor == null || !transparentColor.equals(backgroundColor)) {
+                graphics2D.setColor(backgroundColor);
+                graphics2D.fillRect(0, 0, newWidth, newHeight);
+            }
         }
         graphics2D.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
         graphics2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -528,35 +973,90 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         int scaledWidth = maxWidth != null ? maxWidth : newWidth;
         int scaledHeight = maxHeight != null ? maxHeight : newHeight;
         finalImg = scaleImage(finalImg, scaledWidth, scaledHeight);
-
+        if (transparentColor != null) {
+            finalImg = makeTransparent(finalImg, transparentColor);
+        }
         return finalImg;
     }
 
-    public BufferedImage offsetImage(BufferedImage bufferedImage, Color backgroundColor, Integer left, Integer right, Integer top, Integer bottom) {
+    public BufferedImage offsetImage(BufferedImage bufferedImage, Color backgroundColor, Color transparentColor, Integer left, Integer right, Integer top, Integer bottom) {
         int width = left + bufferedImage.getWidth() + right;
         int height = top + bufferedImage.getHeight() + bottom;
         BufferedImage finalImage = new BufferedImage(width, height, IMAGE_TYPE);
         Graphics2D graphics2D = finalImage.createGraphics();
         if (backgroundColor != null) {
-            graphics2D.setColor(backgroundColor);
-            graphics2D.fillRect(0, 0, width, height);
+            if (transparentColor == null || !transparentColor.equals(backgroundColor)) {
+                graphics2D.setColor(backgroundColor);
+                graphics2D.fillRect(0, 0, width, height);
+            }
         }
         graphics2D.drawImage(bufferedImage, null, left, top);
         graphics2D.dispose();
+
+        if (transparentColor != null) {
+            finalImage = makeTransparent(finalImage, transparentColor);
+        }
         return finalImage;
     }
 
+    public void overlayImage(BufferedImage underImage, BufferedImage overImage, int x, int y) {
+        Graphics2D graphics2D = underImage.createGraphics();
+        graphics2D.drawImage(overImage, null, x, y);
+        graphics2D.dispose();
+    }
+
     public BufferedImage toImage(
-            String multiline, Font font, Color backgroundColor, Color foregroundColor,
+            String multiline, Font font, Color backgroundColor, Color transparentColor, Color foregroundColor,
             int left, int right, int top, int bottom,
             Integer maxWidth, Integer maxHeight,
             Integer minWidth, Integer minHeight
     ) {
         String[] lines = multiline.split("\\r?\\n");
-        return toImage(Arrays.asList(lines), font, backgroundColor, foregroundColor, left, right, top, bottom, maxWidth, maxHeight, minWidth, minHeight);
+        return toImage(Arrays.asList(lines), font, backgroundColor, transparentColor, foregroundColor, left, right, top, bottom, maxWidth, maxHeight, minWidth, minHeight);
     }
 
-    public BufferedImage joinImagesVertical(int offset, Color backgroundColor, BufferedImage... bufferedImages) {
+    public BufferedImage toImage(
+            String multiline, FontType fontType, Color backgroundColor, Color transparentColor, Color foregroundColor,
+            int left, int right, int top, int bottom,
+            Integer maxWidth, Integer maxHeight,
+            Integer minWidth, Integer minHeight
+    ) {
+        String[] lines = multiline.split("\\r?\\n");
+        return toImage(Arrays.asList(lines), fontType, backgroundColor, transparentColor, foregroundColor, left, right, top, bottom, maxWidth, maxHeight, minWidth, minHeight);
+    }
+
+    public BufferedImage joinImagesVerticalLayers(int offset, Color backgroundColor, Color transparentColor, BufferedImage[] bufferedImages, Integer[] layers) {
+        int width = 0;
+        int height = 0;
+        int[] heights = new int[bufferedImages.length];
+        List<Tuple> tupleList = new ArrayList<>();
+        int i = 0;
+        for (i = 0; i < bufferedImages.length; i++) {
+            tupleList.add(new Tuple(layers[i], i));
+            if (bufferedImages[i].getWidth() > width) {
+                width = bufferedImages[i].getWidth();
+            }
+            height = height + ((i > 0) ? bufferedImages[i - 1].getHeight() : 0) + ((i > 0) ? offset : 0);
+            heights[i] = height;
+        }
+        height = height + ((i > 0) ? bufferedImages[i - 1].getHeight() : 0) + ((i > 0) ? offset : 0);
+        BufferedImage finalImage = new BufferedImage(width, height, IMAGE_TYPE);
+        Graphics2D graphics2D = finalImage.createGraphics();
+        if (backgroundColor != null) {
+            if (transparentColor == null || !transparentColor.equals(backgroundColor)) {
+                graphics2D.setColor(backgroundColor);
+                graphics2D.fillRect(0, 0, width, height);
+            }
+        }
+        tupleList.stream().sorted((tuple1, tuple2) -> Integer.compare(tuple1.getA(), tuple2.getA()))
+                .forEach(tuple ->
+                        graphics2D.drawImage(bufferedImages[tuple.getB()], null, 0, heights[tuple.getB()])
+                );
+        graphics2D.dispose();
+        return finalImage;
+    }
+
+    public BufferedImage joinImagesVertical(int offset, Color backgroundColor, Color transparentColor, BufferedImage... bufferedImages) {
         int width = 0;
         int height = 0;
         for (BufferedImage bufferedImage : bufferedImages) {
@@ -569,8 +1069,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         BufferedImage finalImage = new BufferedImage(width, height, IMAGE_TYPE);
         Graphics2D graphics2D = finalImage.createGraphics();
         if (backgroundColor != null) {
-            graphics2D.setColor(backgroundColor);
-            graphics2D.fillRect(0, 0, width, height);
+            if (transparentColor == null || !transparentColor.equals(backgroundColor)) {
+                graphics2D.setColor(backgroundColor);
+                graphics2D.fillRect(0, 0, width, height);
+            }
         }
         int y = 0;
         for (BufferedImage bufferedImage : bufferedImages) {
@@ -585,7 +1087,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
     public static BufferedImage scaleImage(BufferedImage image, Integer width, Integer height) {
         int newHeight = height != null ? height : Integer.MAX_VALUE;
         int newWidth = width != null ? width : Integer.MAX_VALUE;
-        if (image.getHeight() == newHeight && image.getWidth() == newWidth) {
+        if ((width == null && height == null) || (image.getHeight() == newHeight && image.getWidth() == newWidth)) {
             return image;
         }
 
@@ -610,21 +1112,101 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         return newImage;
     }
 
-    public Font createFont(FontType fontType) throws IOException, FontFormatException {
+
+    public static BufferedImage toBufferedImage(Image img) {
+        if (img instanceof BufferedImage) {
+            return (BufferedImage) img;
+        }
+
+        // Create a buffered image with transparency
+        BufferedImage bimage = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+
+        // Draw the image on to the buffered image
+        Graphics2D bGr = bimage.createGraphics();
+        bGr.drawImage(img, 0, 0, null);
+        bGr.dispose();
+
+        // Return the buffered image
+        return bimage;
+    }
+
+
+    public BufferedImage getCroppedImage(BufferedImage bufferedImage, Color backgroundColor, double tolerance) {
+        // Get our top-left pixel color as our "baseline" for cropping
+
+        int baseColor = bufferedImage.getRGB(0, 0);
+        if (backgroundColor != null) {
+            baseColor = backgroundColor.getRGB();
+        }
+
+        int width = bufferedImage.getWidth();
+        int height = bufferedImage.getHeight();
+
+        int topY = Integer.MAX_VALUE, topX = Integer.MAX_VALUE;
+        int bottomY = -1, bottomX = -1;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (colorWithinTolerance(baseColor, bufferedImage.getRGB(x, y), tolerance)) {
+                    if (x < topX) topX = x;
+                    if (y < topY) topY = y;
+                    if (x > bottomX) bottomX = x;
+                    if (y > bottomY) bottomY = y;
+                }
+            }
+        }
+
+        BufferedImage finalImage = new BufferedImage((bottomX - topX + 1), (bottomY - topY + 1), IMAGE_TYPE);
+
+        finalImage.getGraphics().drawImage(bufferedImage, 0, 0,
+                finalImage.getWidth(), finalImage.getHeight(),
+                topX, topY, bottomX, bottomY, null);
+
+        return finalImage;
+    }
+
+    private boolean colorWithinTolerance(int a, int b, double tolerance) {
+        int aAlpha = (int) ((a & 0xFF000000) >>> 24);   // Alpha level
+        int aRed = (int) ((a & 0x00FF0000) >>> 16);   // Red level
+        int aGreen = (int) ((a & 0x0000FF00) >>> 8);    // Green level
+        int aBlue = (int) (a & 0x000000FF);            // Blue level
+
+        int bAlpha = (int) ((b & 0xFF000000) >>> 24);   // Alpha level
+        int bRed = (int) ((b & 0x00FF0000) >>> 16);   // Red level
+        int bGreen = (int) ((b & 0x0000FF00) >>> 8);    // Green level
+        int bBlue = (int) (b & 0x000000FF);            // Blue level
+
+        double distance = Math.sqrt((aAlpha - bAlpha) * (aAlpha - bAlpha) +
+                (aRed - bRed) * (aRed - bRed) +
+                (aGreen - bGreen) * (aGreen - bGreen) +
+                (aBlue - bBlue) * (aBlue - bBlue));
+
+        // 510.0 is the maximum distance between two colors
+        // (0,0,0,0 -> 255,255,255,255)
+        double percentAway = distance / 510.0d * 100;
+
+        return (percentAway > tolerance);
+    }
+
+    public Font createFont(FontType fontType) {
         if (fontType == null) {
             return null;
         }
         return getFont(fontType.getName(), fontType.getStyle(), fontType.getSize());
     }
 
-    public Font getFont(String name, Integer style, Float size) throws IOException, FontFormatException {
+    public Font getFont(String name, Integer style, Float size) {
         String key = name + "-" + String.valueOf(style) + String.valueOf(size);
         if (fontMap.containsKey(key)) {
             return fontMap.get(key);
         }
         String fontFilePathName = "/dss/fonts/" + name + (name.toLowerCase().endsWith(".ttf") ? "" : ".ttf");
         InputStream is = PdfUtilServiceImpl.class.getResourceAsStream(fontFilePathName);
-        Font fontDefault = Font.createFont(Font.TRUETYPE_FONT, is);
+        Font fontDefault = null;
+        try {
+            fontDefault = Font.createFont(Font.TRUETYPE_FONT, is);
+        } catch (FontFormatException | IOException e) {
+            throw new PdfUtilRuntimeException("Exception loading font " + name, e);
+        }
 
         Font fontSpecific = fontDefault;
         if (size != null && style != null) {
@@ -658,6 +1240,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 .mode(signatureConfigurationRequest.getMode())
                 .signatureFieldAppearance(signatureConfigurationRequest.getSignatureFieldAppearance())
                 .backgroundColor(createColor(signatureConfigurationRequest.getBackgroundColor()))
+                .transparentColor(createColor(signatureConfigurationRequest.getTransparentColor()))
                 .foregroundColor(createColor(signatureConfigurationRequest.getForegroundColor()))
                 .borderColor(createColor(signatureConfigurationRequest.getBorderColor()))
                 .sessionFont(createFont(signatureConfigurationRequest.getSessionFontType()))

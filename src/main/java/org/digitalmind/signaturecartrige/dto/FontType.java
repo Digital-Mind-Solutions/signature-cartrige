@@ -24,4 +24,8 @@ public class FontType {
     @Builder.Default
     private Integer bottom = 0;
 
+    public FontType(FontType fontType) {
+        this(fontType.getName(), fontType.getStyle(), fontType.getSize(), fontType.getLeft(), fontType.getRight(), fontType.getTop(), fontType.getBottom());
+    }
+
 }

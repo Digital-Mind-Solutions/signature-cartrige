@@ -17,6 +17,7 @@ public class SignatureConfiguration {
     private SignatureMode mode;
     private SignatureFieldAppearance signatureFieldAppearance;
     private Color backgroundColor;
+    private Color transparentColor;
     private Color foregroundColor;
     private Color borderColor;
     private Font sessionFont;

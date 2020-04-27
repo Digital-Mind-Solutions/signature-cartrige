@@ -17,6 +17,8 @@ public class SignatureConfigurationRequest {
     @Builder.Default
     private String backgroundColor = "white";
     @Builder.Default
+    private String transparentColor = "white";
+    @Builder.Default
     private String foregroundColor = "black";
     private String borderColor;
     private FontType sessionFontType;
