@@ -571,9 +571,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             //--------------------------------------------------------------------------------------------------------------
             BufferedImage bufferedImageSignature = null;
             boolean bufferedImageSignatureNeedsCorrection = true;
+            Integer signatureHeight = 0;
             if (signatureFieldAppearance.hasSignature()) {
                 //this field can be text or image
-                Integer signatureHeight = finalHeight != null && (finalHeight - cummulatedHeight) >= 0
+                signatureHeight = finalHeight != null && (finalHeight - cummulatedHeight) >= 0
                         ? finalHeight - cummulatedHeight
                         : finalHeight;
                 if (signatureCartridgeRequest.getSignature() instanceof String) {
@@ -621,6 +622,8 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                     if (bufferedImageSignatureNeedsCorrection) {
                         bufferedImageSignature = offsetImage(bufferedImageSignature, configuration.getBackgroundColor(), configuration.getTransparentColor(), configuration.getSignatureFontType().getLeft(), configuration.getSignatureFontType().getRight(), configuration.getSignatureFontType().getTop(), configuration.getSignatureFontType().getBottom());
                     }
+
+                    //cred ca trebuie sa fie signatureHeight
                     if (finalWidth != null || finalHeight != null) {
                         bufferedImageSignature = scaleImage(bufferedImageSignature, finalWidth, finalHeight);
                     }
@@ -649,7 +652,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 if (signatureCartridgeWidth < bufferedImageSignature.getWidth()) {
                     signatureCartridgeWidth = bufferedImageSignature.getWidth();
                 }
-                signatureCartridgeHeight += bufferedImageSignature.getHeight();
+                signatureCartridgeHeight += signatureHeight;
             }
             if (bufferedImageTrace != null) {
                 layers.add(3);
@@ -682,9 +685,9 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 int left = 3;
                 graphics2D.drawOval(configuration.getSessionFontType().getLeft() - 2 * circle - 1, top - 3, circle, circle);
                 graphics2D.drawLine(configuration.getSessionFontType().getLeft() - 2 * circle, top, left, top);
-                graphics2D.drawLine(left, top, left, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle);
-                graphics2D.drawLine(left, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle, signatureCartridgeWidth - circle, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle);
-                graphics2D.drawOval(signatureCartridgeWidth - circle, bufferedImageSession.getHeight() + bufferedImageSignature.getHeight() - circle - 3, circle, circle);
+                graphics2D.drawLine(left, top, left, bufferedImageSession.getHeight() + signatureHeight - circle);
+                graphics2D.drawLine(left, bufferedImageSession.getHeight() + signatureHeight - circle, signatureCartridgeWidth - circle, bufferedImageSession.getHeight() + signatureHeight - circle);
+                graphics2D.drawOval(signatureCartridgeWidth - circle, bufferedImageSession.getHeight() + signatureHeight - circle - 3, circle, circle);
                 graphics2D.dispose();
                 if (configuration.getTransparentColor() != null) {
                     bufferedImageBorder = makeTransparent(bufferedImageBorder, configuration.getTransparentColor());
