@@ -373,7 +373,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                     int dx = finalWidth > signatureRenderDetails.getWidth() ? (finalWidth - signatureRenderDetails.getWidth()) / 2 : 0;
                     int dy = signatureHeight > signatureRenderDetails.getHeight() ? (signatureHeight - signatureRenderDetails.getHeight()) / 2 : 0;
 
-                    bufferedImageSignature = createImage(configuration.getBackgroundColor(), configuration.getTransparentColor(), finalWidth, signatureHeight);
+                    bufferedImageSignature = createImage(configuration.getBackgroundColor(), configuration.getTransparentColor(), finalWidth, finalHeight);
                     writeImage(bufferedImageSignature, (String) signatureCartridgeRequest.getSignature(), dx, dy, signatureRenderDetails, renderingHints);
 
                     bufferedImageSignatureNeedsCorrection = false;
@@ -418,10 +418,12 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                         overlayImage(baseSignature, bufferedImageSignature, dx, dy);
                         bufferedImageSignature = baseSignature;
 
+                        if (finalWidth != null || finalHeight != null) {
+                            bufferedImageSignature = scaleImage(bufferedImageSignature, finalWidth, signatureHeight);
+                        }
+
                     }
-                    if (finalWidth != null || finalHeight != null) {
-                        bufferedImageSignature = scaleImage(bufferedImageSignature, finalWidth, signatureHeight);
-                    }
+
                 }
             }
 
