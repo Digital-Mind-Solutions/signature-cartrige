@@ -355,9 +355,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             //----------------------------------------------------------------------------------------------------------
             BufferedImage bufferedImageSignature = null;
             boolean bufferedImageSignatureNeedsCorrection = true;
+            Integer signatureHeight = 0;
             if (signatureFieldAppearance.hasSignature()) {
                 //this field can be text or image
-                Integer signatureHeight = finalHeight != null && (finalHeight - cummulatedHeight) >= 0
+                signatureHeight = finalHeight != null && (finalHeight - cummulatedHeight) >= 0
                         ? finalHeight - cummulatedHeight
                         : finalHeight;
                 if (signatureCartridgeRequest.getSignature() instanceof String) {
@@ -443,7 +444,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             if (signatureFieldAppearance.hasTrace()) {
                 writeImage(signatureImage,
                         signatureCartridgeRequest.getTrace(),
-                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + bufferedImageSignature.getHeight(),
+                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + signatureHeight,
                         traceRenderDetails,
                         renderingHints
                 );
@@ -451,7 +452,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             if (signatureFieldAppearance.hasDate()) {
                 writeImage(signatureImage,
                         configuration.getDateLabel() + signatureCartridgeRequest.getDate(),
-                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + bufferedImageSignature.getHeight() + (traceRenderDetails != null ? traceRenderDetails.getHeight() : 0),
+                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + signatureHeight + (traceRenderDetails != null ? traceRenderDetails.getHeight() : 0),
                         dateRenderDetails,
                         renderingHints
                 );
@@ -467,9 +468,9 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 int left = 10;
                 graphics2D.drawOval(configuration.getSessionFontType().getLeft() - 2 * circle - 1, top - circle / 2, circle, circle);
                 graphics2D.drawLine(configuration.getSessionFontType().getLeft() - 2 * circle, top, left, top);
-                graphics2D.drawLine(left, top, left, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle);
-                graphics2D.drawLine(left, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle, finalWidth - circle, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle);
-                graphics2D.drawOval(finalWidth - circle, sessionRenderDetails.getHeight() + bufferedImageSignature.getHeight() - circle - circle / 2, circle, circle);
+                graphics2D.drawLine(left, top, left, sessionRenderDetails.getHeight() + signatureHeight - circle);
+                graphics2D.drawLine(left, sessionRenderDetails.getHeight() + signatureHeight - circle, finalWidth - circle, sessionRenderDetails.getHeight() + signatureHeight - circle);
+                graphics2D.drawOval(finalWidth - circle, sessionRenderDetails.getHeight() + signatureHeight - circle - circle / 2, circle, circle);
                 graphics2D.dispose();
             }
 
