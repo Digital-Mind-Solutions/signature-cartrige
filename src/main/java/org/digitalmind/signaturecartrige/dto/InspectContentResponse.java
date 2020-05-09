@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -58,6 +60,18 @@ public class InspectContentResponse {
     @JsonIgnore
     public List<String> getSignatureFields() {
         return this.signatureFieldDetails.keySet().stream().collect(Collectors.toList());
+    }
+
+    public InspectContentResponse(InspectContentResponse inspectContentResponse) {
+        this.signatureOk = inspectContentResponse.isSignatureOk();
+        this.signatureMissingFields = inspectContentResponse.getSignatureMissingFields() != null ? new ArrayList<>(inspectContentResponse.getSignatureMissingFields()) : null;
+        this.signatureAdditionalFields = inspectContentResponse.getSignatureAdditionalFields() != null ? new ArrayList<>(inspectContentResponse.getSignatureAdditionalFields()) : null;
+        this.signatureFieldDetails = inspectContentResponse.getSignatureFieldDetails() != null
+                ? inspectContentResponse.getSignatureFieldDetails().entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey(), entry -> Arrays.copyOf(entry.getValue(), entry.getValue().length)))
+                : null;
+        this.privateVersion = inspectContentResponse.isPrivateVersion();
+        this.privateFields = inspectContentResponse.getPrivateFields() != null ? new ArrayList<>(inspectContentResponse.getPrivateFields()) : null;
+        this.replaceFields(inspectContentResponse.getReplaceFields() != null ? new ArrayList<>(inspectContentResponse.getReplaceFields()) : null;
     }
 
 }
