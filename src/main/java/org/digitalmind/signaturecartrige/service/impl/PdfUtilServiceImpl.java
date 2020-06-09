@@ -63,11 +63,16 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         try (PdfReader reader = new PdfReader(request.getInputStream())) {
             AcroFields acroFields = reader.getAcroFields();
             List<String> signatureFieldNames = acroFields.getFieldNamesWithBlankSignatures();
+
+            builder.signatureOk(true);
             signatureFieldNames.forEach(signatureFieldName -> {
                 float[] pos = acroFields.getFieldPositions(signatureFieldName);
                 builder.signatureFieldDetail(signatureFieldName, pos);
+                if (pos.length > 5) {
+                    builder.signatureRepeatedField(signatureFieldName);
+                    builder.signatureOk(false);
+                }
             });
-            builder.signatureOk(true);
 
             signatureFieldNames.forEach(pdfFieldName -> {
                 boolean matches = false;

@@ -42,6 +42,10 @@ public class InspectContentResponse {
 
     @Singular
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private List<String> signatureRepeatedFields;
+
+    @Singular
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     private Map<String, float[]> signatureFieldDetails;
 
     private boolean privateVersion;
@@ -63,6 +67,7 @@ public class InspectContentResponse {
         this.signatureOk = inspectContentResponse.isSignatureOk();
         this.signatureMissingFields = inspectContentResponse.getSignatureMissingFields() != null ? new ArrayList<>(inspectContentResponse.getSignatureMissingFields()) : null;
         this.signatureAdditionalFields = inspectContentResponse.getSignatureAdditionalFields() != null ? new ArrayList<>(inspectContentResponse.getSignatureAdditionalFields()) : null;
+        this.signatureRepeatedFields = inspectContentResponse.getSignatureRepeatedFields() != null ? new ArrayList<>(inspectContentResponse.getSignatureRepeatedFields()) : null;
         this.signatureFieldDetails = inspectContentResponse.getSignatureFieldDetails() != null
                 ? inspectContentResponse.getSignatureFieldDetails().entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey(), entry -> Arrays.copyOf(entry.getValue(), entry.getValue().length)))
                 : null;
@@ -80,6 +85,7 @@ public class InspectContentResponse {
                 privateVersion == that.privateVersion &&
                 Objects.equals(signatureMissingFields, that.signatureMissingFields) &&
                 Objects.equals(signatureAdditionalFields, that.signatureAdditionalFields) &&
+                Objects.equals(signatureRepeatedFields, that.signatureRepeatedFields) &&
                 mapEquals(signatureFieldDetails, that.signatureFieldDetails) &&
                 Objects.equals(privateFields, that.privateFields) &&
                 Objects.equals(replaceFields, that.replaceFields);
@@ -87,7 +93,7 @@ public class InspectContentResponse {
 
     @Override
     public int hashCode() {
-        return Objects.hash(signatureOk, signatureMissingFields, signatureAdditionalFields, mapHashCode(signatureFieldDetails), privateVersion, privateFields, replaceFields);
+        return Objects.hash(signatureOk, signatureMissingFields, signatureAdditionalFields, signatureRepeatedFields, mapHashCode(signatureFieldDetails), privateVersion, privateFields, replaceFields);
     }
 
     private boolean mapEquals(Map<String, float[]> map1, Map<String, float[]> map2) {
