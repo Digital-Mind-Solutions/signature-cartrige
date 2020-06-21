@@ -5,7 +5,7 @@ import lombok.experimental.SuperBuilder;
 
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.List;
+import java.util.Map;
 
 @SuperBuilder
 @NoArgsConstructor
@@ -13,8 +13,8 @@ import java.util.List;
 @Data
 @EqualsAndHashCode
 @ToString
-public class FlattenContentRequest {
+public class AddSignatureContentRequest {
     private InputStream inputStream;
     private OutputStream outputStream;
-    private List<String> flattenFields;
+    private Map<String, PdfFieldPosition> signatureFields;
 }

@@ -15,7 +15,9 @@ public interface PdfUtilService {
 
     WatermarkContentResponse watermark(WatermarkContentRequest request) throws IOException;
 
-    FlattenContentResponse flatten (FlattenContentRequest request) throws IOException;
+    FlattenContentResponse flatten(FlattenContentRequest request) throws IOException;
+
+    AddSignatureContentResponse addSignatureFields(AddSignatureContentRequest request) throws IOException;
 
     //PrivateContentResponse hasPrivateContent(PrivateContentRequest request) throws IOException;
 

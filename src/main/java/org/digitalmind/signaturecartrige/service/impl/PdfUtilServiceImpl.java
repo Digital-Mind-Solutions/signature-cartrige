@@ -1,6 +1,7 @@
 package org.digitalmind.signaturecartrige.service.impl;
 
 import com.lowagie.text.PageSize;
+import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -223,6 +224,49 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         try (PdfReader reader = new PdfReader(request.getInputStream())) {
             stamper = new PdfStamper(reader, request.getOutputStream(), '\0', false);
             // close pdf stamper
+            if (request.getFlattenFields() != null && request.getFlattenFields().size() > 0) {
+                AcroFields acroFields = stamper.getAcroFields();
+                Set<String> fieldNames = acroFields.getAllFields().keySet();
+                for (String fieldNameOrPattern : request.getFlattenFields()) {
+                    Set<String> fieldNamesInPdf = null;
+                    if (fieldNameOrPattern.contains("*") || fieldNameOrPattern.contains("?")) {
+                        fieldNamesInPdf = fieldNames.stream().filter(fieldName -> match(fieldNameOrPattern, fieldName)).collect(Collectors.toSet());
+                    } else {
+                        fieldNamesInPdf = fieldNames.stream().filter(fieldName -> fieldNameOrPattern.equals(fieldName)).collect(Collectors.toSet());
+                    }
+                    for (String fieldName : fieldNamesInPdf) {
+                        stamper.partialFormFlattening(fieldName);
+                    }
+                }
+            }
+            stamper.setFormFlattening(true);
+        } finally {
+            stamper.close();
+        }
+        return response;
+    }
+
+    @Override
+    public AddSignatureContentResponse addSignatureFields(AddSignatureContentRequest request) throws IOException {
+        Assert.notNull(request.getInputStream(), this.getClass().getSimpleName() + ".addSignatures: Pdf stream must not be null");
+        AddSignatureContentResponse response = new AddSignatureContentResponse();
+        PdfStamper stamper = null;
+        try (PdfReader reader = new PdfReader(request.getInputStream())) {
+            stamper = new PdfStamper(reader, request.getOutputStream(), '\0', false);
+            // close pdf stamper
+            if (request.getSignatureFields() != null && request.getSignatureFields().size() > 0) {
+                for (Map.Entry<String, PdfFieldPosition> entry : request.getSignatureFields().entrySet()) {
+                    String pdfFieldName = entry.getKey();
+                    PdfFieldPosition pdfFieldPosition = entry.getValue();
+                    PdfFormField signatureField = PdfFormField.createSignature(stamper.getWriter());
+                    signatureField.setWidget(new Rectangle(pdfFieldPosition.getLeft(), pdfFieldPosition.getTop(), pdfFieldPosition.getRight(), pdfFieldPosition.getBottom()), null);
+                    signatureField.setFlags(PdfAnnotation.FLAGS_PRINT);
+                    signatureField.put(PdfName.DA, new PdfString("/Helv 0 Tf 0 g"));
+                    signatureField.setFieldName(pdfFieldName);
+                    signatureField.setPage((int) pdfFieldPosition.getPage());
+                    stamper.addAnnotation(signatureField, 1);
+                }
+            }
             stamper.setFormFlattening(true);
         } finally {
             stamper.close();

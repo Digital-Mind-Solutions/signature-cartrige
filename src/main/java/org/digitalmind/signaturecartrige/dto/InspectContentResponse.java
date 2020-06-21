@@ -16,20 +16,6 @@ import java.util.stream.Collectors;
 @ToString
 public class InspectContentResponse {
 
-    @SuperBuilder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @Data
-    @EqualsAndHashCode
-    @ToString
-    public static class FieldPosition {
-        private float page;
-        private float left;
-        private float bottom;
-        private float right;
-        private float top;
-    }
-
     private boolean signatureOk;
 
     @Singular
