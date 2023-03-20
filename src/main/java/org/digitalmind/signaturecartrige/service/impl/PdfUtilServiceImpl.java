@@ -160,11 +160,14 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                         fieldNamesInPdf = fieldNames.stream().filter(fieldName -> fieldNameOrPattern.equals(fieldName)).collect(Collectors.toSet());
                     }
                     for (String fieldName : fieldNamesInPdf) {
-                        String fieldValue = acroFields.getField(entry.getKey());
-                        if (fieldValue != null) {
-                            acroFields.setField(entry.getKey(), entry.getValue());
-                            //acroFields.setFieldProperty(entry.getKey(), "setfflags", PdfFormField.FF_READ_ONLY, null);
-                        }
+                        String fieldCurrentValue = acroFields.getField(fieldName);
+                        String fieldNextValue = entry.getValue();
+                        acroFields.setField(fieldName, fieldNextValue);
+
+                        //if (fieldValue != null) {
+                        //    acroFields.setField(entry.getKey(), entry.getValue());
+                        //    //acroFields.setFieldProperty(entry.getKey(), "setfflags", PdfFormField.FF_READ_ONLY, null);
+                        //}
                     }
                 }
             }

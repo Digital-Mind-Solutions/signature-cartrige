@@ -6,7 +6,7 @@ plugins {
 }
 
 group 'org.digitalmind'
-version '1.0.0'
+version '1.0.1'
 ext {
     lombokVersion = '1.18.12'
     springfoxVersion = '2.9.2'
