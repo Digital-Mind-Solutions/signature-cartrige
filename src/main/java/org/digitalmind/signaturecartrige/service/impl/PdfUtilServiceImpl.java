@@ -227,8 +227,8 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         try (PdfReader reader = new PdfReader(request.getInputStream())) {
             stamper = new PdfStamper(reader, request.getOutputStream(), '\0', false);
             // close pdf stamper
+            AcroFields acroFields = stamper.getAcroFields();
             if (request.getFlattenFields() != null && request.getFlattenFields().size() > 0) {
-                AcroFields acroFields = stamper.getAcroFields();
                 Set<String> fieldNames = acroFields.getAllFields().keySet();
                 for (String fieldNameOrPattern : request.getFlattenFields()) {
                     Set<String> fieldNamesInPdf = null;
@@ -243,6 +243,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 }
             }
             stamper.setFormFlattening(true);
+            stamper.setFreeTextFlattening(true);
         } finally {
             stamper.close();
         }
