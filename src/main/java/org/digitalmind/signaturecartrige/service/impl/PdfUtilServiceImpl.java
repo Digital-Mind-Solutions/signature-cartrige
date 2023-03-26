@@ -233,7 +233,13 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             AcroFields acroFields = stamper.getAcroFields();
             Set<String> flattenFieldNames = new HashSet<>();
             Set<String> acroFieldNames = acroFields.getAllFields().keySet();
-            Set<String> requestFlattenFieldNames = match(request.getFlattenFields(), acroFieldNames);
+            Set<String> requestFlattenFieldNames = null;
+
+            if (!ObjectUtils.isEmpty(request.getFlattenFields()) && request.getFlattenFields().size() == 1 && "*".equalsIgnoreCase(request.getFlattenFields().get(0))) {
+                requestFlattenFieldNames = new HashSet<>(acroFieldNames);
+            } else {
+                requestFlattenFieldNames = match(request.getFlattenFields(), acroFieldNames);
+            }
             Set<String> requestNonFlattenFieldNames = match(request.getNonFlattenFields(), acroFieldNames);
 
             flattenFieldNames.addAll(requestFlattenFieldNames);
@@ -257,7 +263,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             }
 
 
-            if(flattenFieldNames.size()!= acroFieldNames.size()){
+            if (flattenFieldNames.size() != acroFieldNames.size()) {
                 for (String fieldName : flattenFieldNames) {
                     stamper.partialFormFlattening(fieldName);
                 }
