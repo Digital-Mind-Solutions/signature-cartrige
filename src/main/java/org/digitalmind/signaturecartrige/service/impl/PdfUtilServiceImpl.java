@@ -236,6 +236,12 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             Set<String> requestFlattenFieldNames = match(request.getFlattenFields(), acroFieldNames);
             Set<String> requestNonFlattenFieldNames = match(request.getNonFlattenFields(), acroFieldNames);
 
+
+
+            flattenFieldNames.addAll(requestFlattenFieldNames);
+
+            flattenFieldNames.removeAll(requestNonFlattenFieldNames);
+
             if (Boolean.TRUE.equals(request.getFlattenSignatureFields())) {
                 for (String fieldName : acroFieldNames) {
                     if (AcroFields.FIELD_TYPE_SIGNATURE == acroFields.getFieldType(fieldName)) {
@@ -244,11 +250,6 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                 }
             }
 
-            flattenFieldNames.addAll(requestFlattenFieldNames);
-
-            flattenFieldNames.removeAll(requestNonFlattenFieldNames);
-
-            //la sfarsit dupa ce am toate fieldurile cu flatten in flattenFieldNames scot tot ce e semnatura
             if (Boolean.FALSE.equals(request.getFlattenSignatureFields())) {
                 for (String fieldName : acroFieldNames) {
                     if (AcroFields.FIELD_TYPE_SIGNATURE == acroFields.getFieldType(fieldName)) {
@@ -256,6 +257,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
                     }
                 }
             }
+
 
             if(flattenFieldNames.size()!= acroFieldNames.size()){
                 for (String fieldName : flattenFieldNames) {
