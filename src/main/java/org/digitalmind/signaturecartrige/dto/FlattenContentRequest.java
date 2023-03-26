@@ -17,4 +17,6 @@ public class FlattenContentRequest {
     private InputStream inputStream;
     private OutputStream outputStream;
     private List<String> flattenFields;
+    private List<String> nonFlattenFields;
+    private Boolean flattenSignatureFields;
 }

@@ -20,6 +20,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
+import org.springframework.util.ObjectUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
@@ -219,29 +220,50 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         return response;
     }
 
+
     @Override
     public FlattenContentResponse flatten(FlattenContentRequest request) throws IOException {
         Assert.notNull(request.getInputStream(), this.getClass().getSimpleName() + ".validateSignatureFields: Pdf stream must not be null");
         FlattenContentResponse response = new FlattenContentResponse();
         PdfStamper stamper = null;
         try (PdfReader reader = new PdfReader(request.getInputStream())) {
+
             stamper = new PdfStamper(reader, request.getOutputStream(), '\0', false);
             // close pdf stamper
             AcroFields acroFields = stamper.getAcroFields();
-            if (request.getFlattenFields() != null && request.getFlattenFields().size() > 0) {
-                Set<String> fieldNames = acroFields.getAllFields().keySet();
-                for (String fieldNameOrPattern : request.getFlattenFields()) {
-                    Set<String> fieldNamesInPdf = null;
-                    if (fieldNameOrPattern.contains("*") || fieldNameOrPattern.contains("?")) {
-                        fieldNamesInPdf = fieldNames.stream().filter(fieldName -> match(fieldNameOrPattern, fieldName)).collect(Collectors.toSet());
-                    } else {
-                        fieldNamesInPdf = fieldNames.stream().filter(fieldName -> fieldNameOrPattern.equals(fieldName)).collect(Collectors.toSet());
-                    }
-                    for (String fieldName : fieldNamesInPdf) {
-                        stamper.partialFormFlattening(fieldName);
+            Set<String> flattenFieldNames = new HashSet<>();
+            Set<String> acroFieldNames = acroFields.getAllFields().keySet();
+            Set<String> requestFlattenFieldNames = match(request.getFlattenFields(), acroFieldNames);
+            Set<String> requestNonFlattenFieldNames = match(request.getNonFlattenFields(), acroFieldNames);
+
+            if (Boolean.TRUE.equals(request.getFlattenSignatureFields())) {
+                for (String fieldName : acroFieldNames) {
+                    if (AcroFields.FIELD_TYPE_SIGNATURE == acroFields.getFieldType(fieldName)) {
+                        flattenFieldNames.add(fieldName);
                     }
                 }
             }
+
+            flattenFieldNames.addAll(requestFlattenFieldNames);
+
+            flattenFieldNames.removeAll(requestNonFlattenFieldNames);
+
+            //la sfarsit dupa ce am toate fieldurile cu flatten in flattenFieldNames scot tot ce e semnatura
+            if (Boolean.FALSE.equals(request.getFlattenSignatureFields())) {
+                for (String fieldName : acroFieldNames) {
+                    if (AcroFields.FIELD_TYPE_SIGNATURE == acroFields.getFieldType(fieldName)) {
+                        flattenFieldNames.remove(fieldName);
+                    }
+                }
+            }
+
+            if(flattenFieldNames.size()!= acroFieldNames.size()){
+                for (String fieldName : flattenFieldNames) {
+                    stamper.partialFormFlattening(fieldName);
+                }
+
+            }
+
             stamper.setFormFlattening(true);
             stamper.setFreeTextFlattening(true);
         } finally {
@@ -278,6 +300,36 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         return response;
     }
 
+
+    public Set<String> match(Collection<String> fieldNameOrPatternCollection, Collection<String> fieldNameCollection) {
+        final Set<String> result = new HashSet<>();
+        if (ObjectUtils.isEmpty(fieldNameCollection)) {
+            //do nothing
+        } else {
+            fieldNameOrPatternCollection.stream().forEach(
+                    fieldNameOrPattern -> {
+                        result.addAll(match(fieldNameOrPattern, fieldNameCollection));
+                    }
+            );
+        }
+        return result;
+    }
+
+
+    public Set<String> match(String fieldNameOrPattern, Collection<String> fieldNames) {
+        Set<String> result = Collections.emptySet();
+        if (ObjectUtils.isEmpty(fieldNameOrPattern) || ObjectUtils.isEmpty(fieldNames)) {
+            //do nothing
+        } else {
+            if (fieldNameOrPattern.contains("*") || fieldNameOrPattern.contains("?")) {
+                result = fieldNames.stream().filter(fieldName -> match(fieldNameOrPattern, fieldName)).collect(Collectors.toSet());
+            } else {
+                result = fieldNames.stream().filter(fieldName -> fieldNameOrPattern.equals(fieldName)).collect(Collectors.toSet());
+            }
+        }
+        return result;
+    }
+
     //https://www.geeksforgeeks.org/wildcard-character-matching/
     //https://www.geeksforgeeks.org/wildcard-pattern-matching-three-symbols/?ref=rp
     public boolean match(String fieldNameOrPattern, String fieldName) {
@@ -303,10 +355,14 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         // If the first string contains '?',
         // or current characters of both strings match
         if ((fieldNameOrPattern.length() > 1 && fieldNameOrPattern.charAt(0) == '?') ||
-                (fieldNameOrPattern.length() != 0 && fieldName.length() != 0 &&
-                        fieldNameOrPattern.charAt(0) == fieldName.charAt(0)))
-            return match(fieldNameOrPattern.substring(1),
-                    fieldName.substring(1));
+                (
+                        fieldNameOrPattern.length() != 0 && fieldName.length() != 0 &&
+                                fieldNameOrPattern.charAt(0) == fieldName.charAt(0)
+                ))
+            return match(
+                    fieldNameOrPattern.substring(1),
+                    fieldName.substring(1)
+            );
 
         // If there is *, then there are two possibilities
         // a) We consider current character of second string
@@ -488,26 +544,26 @@ public class PdfUtilServiceImpl implements PdfUtilService {
 
             if (signatureFieldAppearance.hasSession()) {
                 writeImage(signatureImage,
-                        configuration.getSessionLabel() + signatureCartridgeRequest.getSession(),
-                        0, 0,
-                        sessionRenderDetails,
-                        renderingHints
+                           configuration.getSessionLabel() + signatureCartridgeRequest.getSession(),
+                           0, 0,
+                           sessionRenderDetails,
+                           renderingHints
                 );
             }
             if (signatureFieldAppearance.hasTrace()) {
                 writeImage(signatureImage,
-                        signatureCartridgeRequest.getTrace(),
-                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + signatureHeight,
-                        traceRenderDetails,
-                        renderingHints
+                           signatureCartridgeRequest.getTrace(),
+                           0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + signatureHeight,
+                           traceRenderDetails,
+                           renderingHints
                 );
             }
             if (signatureFieldAppearance.hasDate()) {
                 writeImage(signatureImage,
-                        configuration.getDateLabel() + signatureCartridgeRequest.getDate(),
-                        0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + signatureHeight + (traceRenderDetails != null ? traceRenderDetails.getHeight() : 0),
-                        dateRenderDetails,
-                        renderingHints
+                           configuration.getDateLabel() + signatureCartridgeRequest.getDate(),
+                           0, 0 + (sessionRenderDetails != null ? sessionRenderDetails.getHeight() : 0) + signatureHeight + (traceRenderDetails != null ? traceRenderDetails.getHeight() : 0),
+                           dateRenderDetails,
+                           renderingHints
                 );
             }
 
@@ -831,8 +887,9 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             Integer maxWidth, Integer maxHeight
     ) {
         return calcRenderDetails(Arrays.asList(line), fontType,
-                backgroundColor, transparentColor, foregroundColor,
-                maxWidth, maxHeight);
+                                 backgroundColor, transparentColor, foregroundColor,
+                                 maxWidth, maxHeight
+        );
     }
 
     public TextRenderDetails calcRenderDetails(
@@ -1109,7 +1166,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         }
         tupleList.stream().sorted((tuple1, tuple2) -> Integer.compare(tuple1.getA(), tuple2.getA()))
                 .forEach(tuple ->
-                        graphics2D.drawImage(bufferedImages[tuple.getB()], null, 0, heights[tuple.getB()])
+                                 graphics2D.drawImage(bufferedImages[tuple.getB()], null, 0, heights[tuple.getB()])
                 );
         graphics2D.dispose();
         return finalImage;
@@ -1217,8 +1274,9 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         BufferedImage finalImage = new BufferedImage((bottomX - topX + 1), (bottomY - topY + 1), IMAGE_TYPE);
 
         finalImage.getGraphics().drawImage(bufferedImage, 0, 0,
-                finalImage.getWidth(), finalImage.getHeight(),
-                topX, topY, bottomX, bottomY, null);
+                                           finalImage.getWidth(), finalImage.getHeight(),
+                                           topX, topY, bottomX, bottomY, null
+        );
 
         return finalImage;
     }
@@ -1235,9 +1293,9 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         int bBlue = (int) (b & 0x000000FF);            // Blue level
 
         double distance = Math.sqrt((aAlpha - bAlpha) * (aAlpha - bAlpha) +
-                (aRed - bRed) * (aRed - bRed) +
-                (aGreen - bGreen) * (aGreen - bGreen) +
-                (aBlue - bBlue) * (aBlue - bBlue));
+                                            (aRed - bRed) * (aRed - bRed) +
+                                            (aGreen - bGreen) * (aGreen - bGreen) +
+                                            (aBlue - bBlue) * (aBlue - bBlue));
 
         // 510.0 is the maximum distance between two colors
         // (0,0,0,0 -> 255,255,255,255)
