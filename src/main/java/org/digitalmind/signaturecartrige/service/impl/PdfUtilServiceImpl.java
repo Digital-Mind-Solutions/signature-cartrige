@@ -236,8 +236,6 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             Set<String> requestFlattenFieldNames = match(request.getFlattenFields(), acroFieldNames);
             Set<String> requestNonFlattenFieldNames = match(request.getNonFlattenFields(), acroFieldNames);
 
-
-
             flattenFieldNames.addAll(requestFlattenFieldNames);
 
             flattenFieldNames.removeAll(requestNonFlattenFieldNames);
