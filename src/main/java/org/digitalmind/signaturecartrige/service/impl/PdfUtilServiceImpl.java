@@ -309,7 +309,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
 
     public Set<String> match(Collection<String> fieldNameOrPatternCollection, Collection<String> fieldNameCollection) {
         final Set<String> result = new HashSet<>();
-        if (ObjectUtils.isEmpty(fieldNameCollection)) {
+        if (ObjectUtils.isEmpty(fieldNameOrPatternCollection) || ObjectUtils.isEmpty(fieldNameCollection)) {
             //do nothing
         } else {
             fieldNameOrPatternCollection.stream().forEach(
