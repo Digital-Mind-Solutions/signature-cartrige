@@ -1,8 +1,7 @@
 package org.digitalmind.signaturecartrige.dto;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import org.springframework.core.io.Resource;
 
@@ -12,7 +11,7 @@ import org.springframework.core.io.Resource;
 @ToString
 @EqualsAndHashCode
 @Data
-@ApiModel(value = "SignatureCartridgeResponse", description = "The result object containing a signature cartidge image.")
+@Schema(description = "The result object containing a signature cartridge image.")
 @JsonPropertyOrder(
         {
                 "request",
@@ -22,13 +21,13 @@ import org.springframework.core.io.Resource;
 )
 public class SignatureCartridgeResponse {
 
-    @ApiModelProperty(value = "The cartridge request", required = false)
+    @Schema(description = "The cartridge request")
     private SignatureCartridgeRequest request;
 
-    @ApiModelProperty(value = "The format of the barcode resource", required = false)
+    @Schema(description = "The format of the barcode resource")
     private String contentType;
 
-    @ApiModelProperty(value = "The barcode resource", required = false)
+    @Schema(description = "The barcode resource")
     private Resource resource;
 
 }
