@@ -4,4 +4,7 @@
 
 # Ignore Gradle build output directory
 build
+# IDE / Eclipse compiler output
+bin/
+out/
 *.iml
