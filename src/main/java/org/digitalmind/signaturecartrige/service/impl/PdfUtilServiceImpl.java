@@ -33,6 +33,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,10 +59,25 @@ public class PdfUtilServiceImpl implements PdfUtilService {
      */
     private static final String FONTS_DIR_SYS_PROP = "pdfutil.fonts.dirs";
 
+    /**
+     * Search roots for {@code <name>.ttf}. Includes common distro layouts (e.g. Alpine {@code font-dejavu} under
+     * {@code /usr/share/fonts/dejavu}) so packages need not be copied flat. Missing dirs are ignored.
+     * Override or extend with {@code -Dpdfutil.fonts.dirs=/extra/path}.
+     */
     private static final String[] DEFAULT_FILESYSTEM_FONT_DIRS = {
             "/usr/share/fonts",
+            "/usr/share/fonts/dejavu",
+            "/usr/share/fonts/liberation",
+            "/usr/share/fonts/TTF",
             "/usr/local/share/fonts",
             "/app/external/fonts",
+    };
+
+    /** If a configured .ttf cannot be parsed by AWT, try these before using a logical font. */
+    private static final String[] FALLBACK_TTF_FILE_NAMES = {
+            "DejaVuSans.ttf",
+            "DejaVuSerif.ttf",
+            "LiberationSerif-Regular.ttf",
     };
 
     private Map<SignatureConfigurationRequest, SignatureConfiguration> signatureConfigurationMap = new ConcurrentHashMap<>();
@@ -1379,17 +1395,39 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         }
         File file = resolveFontFileOnFilesystem(fontFileName);
         if (file != null) {
+            final byte[] ttfBytes;
+            try (FileInputStream fis = new FileInputStream(file)) {
+                ttfBytes = IOUtils.toByteArray(fis);
+            } catch (IOException e) {
+                throw new PdfUtilRuntimeException("Cannot read font file " + file.getAbsolutePath(), e);
+            }
             try {
-                byte[] ttf;
-                try (FileInputStream fis = new FileInputStream(file)) {
-                    ttf = IOUtils.toByteArray(fis);
-                }
-                Font font = createFontFromTtfBytes(ttf, logicalName, file.getAbsolutePath());
+                Font font = createFontFromTtfBytes(ttfBytes, logicalName, file.getAbsolutePath());
                 log.debug("Loaded font {} from filesystem {}", logicalName, file.getAbsolutePath());
                 return font;
             } catch (FontFormatException | IOException e) {
-                throw new PdfUtilRuntimeException(
-                        "Exception loading font " + logicalName + " from " + file.getAbsolutePath(), e);
+                log.warn(
+                        "Font {} unreadable from bytes at {} — {}. {}",
+                        logicalName,
+                        file.getAbsolutePath(),
+                        describeFontPayload(ttfBytes),
+                        e.toString());
+                // Valid-looking TTFs sometimes fail from ByteArrayInputStream but load via File (JDK/native path).
+                try {
+                    Font fromFile = Font.createFont(Font.TRUETYPE_FONT, file);
+                    log.warn("Loaded font {} using Font.createFont(File) after byte[] parse failed", logicalName);
+                    return fromFile;
+                } catch (FontFormatException | IOException e2) {
+                    log.debug("Font.createFont(File) also failed for {}: {}", file.getAbsolutePath(), e2.toString());
+                } catch (RuntimeException e2) {
+                    log.debug("Font.createFont(File) runtime error for {}: {}", file.getAbsolutePath(), e2.toString());
+                }
+                Font fallback = tryLoadBundledFallbackTtf(logicalName);
+                if (fallback != null) {
+                    return fallback;
+                }
+                log.warn("Using logical serif fallback for font {}", logicalName);
+                return logicalSerifBaseFont();
             }
         }
         throw new PdfUtilRuntimeException(
@@ -1411,6 +1449,72 @@ public class PdfUtilServiceImpl implements PdfUtilService {
             }
             throw e;
         }
+    }
+
+    private static String describeFontPayload(byte[] data) {
+        if (data == null || data.length == 0) {
+            return "empty payload";
+        }
+        if (data.length < 4) {
+            return "length=" + data.length + " (too small)";
+        }
+        String magic = String.format("%02x%02x%02x%02x", data[0], data[1], data[2], data[3]);
+        String ascii = new String(data, 0, Math.min(4, data.length), StandardCharsets.US_ASCII);
+        String hint;
+        if (data[0] == '<' || (data.length >= 5 && ascii.startsWith("<?xm"))) {
+            hint = "looks like XML/HTML, not a binary font";
+        } else if (data[0] == 't' && data[1] == 't' && data[2] == 'c' && data[3] == 'f') {
+            hint = "TrueType collection (.ttc); use a single-face .ttf or extract one face";
+        } else if (data[0] == 'O' && data[1] == 'T' && data[2] == 'T' && data[3] == 'O') {
+            hint = "OpenType/CFF (OTTO); AWT may reject — use a plain TrueType .ttf";
+        } else if (data[0] == 0 && data[1] == 1 && data[2] == 0 && data[3] == 0) {
+            hint = "TrueType sfnt (0x00010000)";
+        } else if (data[0] == 1 && data[1] == 0 && data[2] == 0 && data[3] == 0) {
+            hint = "TrueType sfnt (1.0 BE)";
+        } else {
+            hint = "unknown/unsupported header (magic ascii=" + ascii.replace('\r', '.').replace('\n', '.') + ")";
+        }
+        return "length=" + data.length + ", magic=" + magic + " — " + hint;
+    }
+
+    /**
+     * Loads the first known-good TTF from {@link #FALLBACK_TTF_FILE_NAMES} on disk or classpath.
+     */
+    private Font tryLoadBundledFallbackTtf(String requestedLogicalName) {
+        for (String name : FALLBACK_TTF_FILE_NAMES) {
+            File f = resolveFontFileOnFilesystem(name);
+            if (f != null) {
+                try {
+                    byte[] bytes;
+                    try (FileInputStream in = new FileInputStream(f)) {
+                        bytes = IOUtils.toByteArray(in);
+                    }
+                    Font font = createFontFromTtfBytes(bytes, name, f.getAbsolutePath());
+                    log.warn("Using fallback physical font {} for requested {}", f.getAbsolutePath(), requestedLogicalName);
+                    return font;
+                } catch (Exception e) {
+                    log.debug("Fallback font {} not usable: {}", f.getAbsolutePath(), e.toString());
+                }
+            }
+        }
+        for (String name : FALLBACK_TTF_FILE_NAMES) {
+            String cp = "/dss/fonts/" + name;
+            try (InputStream is = PdfUtilServiceImpl.class.getResourceAsStream(cp)) {
+                if (is != null) {
+                    byte[] bytes = IOUtils.toByteArray(is);
+                    Font font = createFontFromTtfBytes(bytes, name, "classpath " + cp);
+                    log.warn("Using classpath fallback font {} for requested {}", cp, requestedLogicalName);
+                    return font;
+                }
+            } catch (Exception e) {
+                log.debug("Classpath fallback {} not usable: {}", cp, e.toString());
+            }
+        }
+        return null;
+    }
+
+    private static Font logicalSerifBaseFont() {
+        return new Font(Font.SERIF, Font.PLAIN, 1);
     }
 
     private List<String> getFilesystemFontSearchDirs() {
