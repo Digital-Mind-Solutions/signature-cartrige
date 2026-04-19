@@ -4,13 +4,17 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
+import java.io.Serializable;
+
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @Data
 @EqualsAndHashCode
 @ToString
-public class SignatureFieldAppearance {
+public class SignatureFieldAppearance implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     public static final SignatureFieldAppearance FULL = SignatureFieldAppearance.builder().session(true).signature(true).trace(true).date(true).build();
     public static final SignatureFieldAppearance DEFAULT = FULL;

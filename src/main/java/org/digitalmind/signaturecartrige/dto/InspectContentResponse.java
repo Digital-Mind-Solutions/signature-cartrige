@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -14,7 +15,9 @@ import java.util.stream.Collectors;
 @Data
 //@EqualsAndHashCode
 @ToString
-public class InspectContentResponse {
+public class InspectContentResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private boolean signatureOk;
 
