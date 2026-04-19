@@ -44,6 +44,18 @@ import static org.digitalmind.signaturecartrige.config.SignatureCartrigeModuleCo
 public class PdfUtilServiceImpl implements PdfUtilService {
 
     private static final int IMAGE_TYPE = BufferedImage.TYPE_INT_ARGB;
+
+    /**
+     * Extra directories to search for {@code .ttf} files after classpath (comma-separated), e.g. {@code /opt/fonts}.
+     */
+    private static final String FONTS_DIR_SYS_PROP = "pdfutil.fonts.dirs";
+
+    private static final String[] DEFAULT_FILESYSTEM_FONT_DIRS = {
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            "/app/fonts",
+    };
+
     private Map<SignatureConfigurationRequest, SignatureConfiguration> signatureConfigurationMap = new ConcurrentHashMap<>();
     private Map<String, Font> fontMap = new ConcurrentHashMap<>();
 
@@ -1322,14 +1334,10 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         if (fontMap.containsKey(key)) {
             return fontMap.get(key);
         }
-        String fontFilePathName = "/dss/fonts/" + name + (name.toLowerCase().endsWith(".ttf") ? "" : ".ttf");
-        InputStream is = PdfUtilServiceImpl.class.getResourceAsStream(fontFilePathName);
-        Font fontDefault = null;
-        try {
-            fontDefault = Font.createFont(Font.TRUETYPE_FONT, is);
-        } catch (FontFormatException | IOException e) {
-            throw new PdfUtilRuntimeException("Exception loading font " + name, e);
-        }
+        String fontFileName = name + (name.toLowerCase().endsWith(".ttf") ? "" : ".ttf");
+        String classpathResource = "/dss/fonts/" + fontFileName;
+
+        Font fontDefault = loadFontTtf(name, fontFileName, classpathResource);
 
         Font fontSpecific = fontDefault;
         if (size != null && style != null) {
@@ -1347,6 +1355,59 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         return fontSpecific;
     }
 
+    /**
+     * Try classpath {@code /dss/fonts/<file>.ttf} first, then host directories (Docker: e.g. {@code /usr/share/fonts}).
+     */
+    private Font loadFontTtf(String logicalName, String fontFileName, String classpathResource) {
+        try (InputStream is = PdfUtilServiceImpl.class.getResourceAsStream(classpathResource)) {
+            if (is != null) {
+                Font font = Font.createFont(Font.TRUETYPE_FONT, is);
+                log.debug("Loaded font {} from classpath {}", logicalName, classpathResource);
+                return font;
+            }
+        } catch (FontFormatException | IOException e) {
+            log.warn("Font {} not usable from classpath {}: {}", logicalName, classpathResource, e.toString());
+        }
+        File file = resolveFontFileOnFilesystem(fontFileName);
+        if (file != null) {
+            try {
+                Font font = Font.createFont(Font.TRUETYPE_FONT, file);
+                log.debug("Loaded font {} from filesystem {}", logicalName, file.getAbsolutePath());
+                return font;
+            } catch (FontFormatException | IOException e) {
+                throw new PdfUtilRuntimeException(
+                        "Exception loading font " + logicalName + " from " + file.getAbsolutePath(), e);
+            }
+        }
+        throw new PdfUtilRuntimeException(
+                "Font not found: " + logicalName + " — tried classpath " + classpathResource
+                        + " and directories: " + String.join(", ", getFilesystemFontSearchDirs()));
+    }
+
+    private List<String> getFilesystemFontSearchDirs() {
+        LinkedHashSet<String> dirs = new LinkedHashSet<>();
+        String extra = System.getProperty(FONTS_DIR_SYS_PROP);
+        if (extra != null && !extra.isBlank()) {
+            for (String d : extra.split(",")) {
+                String t = d.trim();
+                if (!t.isEmpty()) {
+                    dirs.add(t);
+                }
+            }
+        }
+        dirs.addAll(Arrays.asList(DEFAULT_FILESYSTEM_FONT_DIRS));
+        return new ArrayList<>(dirs);
+    }
+
+    private File resolveFontFileOnFilesystem(String fontFileName) {
+        for (String dir : getFilesystemFontSearchDirs()) {
+            File candidate = new File(dir, fontFileName);
+            if (candidate.isFile()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
 
     public Color createColor(String color) {
         if (color == null) {
