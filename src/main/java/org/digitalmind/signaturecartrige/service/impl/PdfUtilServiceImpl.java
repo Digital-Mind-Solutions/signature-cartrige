@@ -26,8 +26,10 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.*;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLConnection;
@@ -43,6 +45,12 @@ import static org.digitalmind.signaturecartrige.config.SignatureCartrigeModuleCo
 @Slf4j
 public class PdfUtilServiceImpl implements PdfUtilService {
 
+    static {
+        if (System.getProperty("java.awt.headless") == null) {
+            System.setProperty("java.awt.headless", "true");
+        }
+    }
+
     private static final int IMAGE_TYPE = BufferedImage.TYPE_INT_ARGB;
 
     /**
@@ -53,7 +61,7 @@ public class PdfUtilServiceImpl implements PdfUtilService {
     private static final String[] DEFAULT_FILESYSTEM_FONT_DIRS = {
             "/usr/share/fonts",
             "/usr/local/share/fonts",
-            "/app/fonts",
+            "/app/external/fonts",
     };
 
     private Map<SignatureConfigurationRequest, SignatureConfiguration> signatureConfigurationMap = new ConcurrentHashMap<>();
@@ -1361,7 +1369,8 @@ public class PdfUtilServiceImpl implements PdfUtilService {
     private Font loadFontTtf(String logicalName, String fontFileName, String classpathResource) {
         try (InputStream is = PdfUtilServiceImpl.class.getResourceAsStream(classpathResource)) {
             if (is != null) {
-                Font font = Font.createFont(Font.TRUETYPE_FONT, is);
+                byte[] ttf = IOUtils.toByteArray(is);
+                Font font = createFontFromTtfBytes(ttf, logicalName, "classpath " + classpathResource);
                 log.debug("Loaded font {} from classpath {}", logicalName, classpathResource);
                 return font;
             }
@@ -1371,7 +1380,11 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         File file = resolveFontFileOnFilesystem(fontFileName);
         if (file != null) {
             try {
-                Font font = Font.createFont(Font.TRUETYPE_FONT, file);
+                byte[] ttf;
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    ttf = IOUtils.toByteArray(fis);
+                }
+                Font font = createFontFromTtfBytes(ttf, logicalName, file.getAbsolutePath());
                 log.debug("Loaded font {} from filesystem {}", logicalName, file.getAbsolutePath());
                 return font;
             } catch (FontFormatException | IOException e) {
@@ -1382,6 +1395,22 @@ public class PdfUtilServiceImpl implements PdfUtilService {
         throw new PdfUtilRuntimeException(
                 "Font not found: " + logicalName + " — tried classpath " + classpathResource
                         + " and directories: " + String.join(", ", getFilesystemFontSearchDirs()));
+    }
+
+    private static Font createFontFromTtfBytes(byte[] ttf, String logicalName, String sourceDescription)
+            throws FontFormatException, IOException {
+        try {
+            return Font.createFont(Font.TRUETYPE_FONT, new ByteArrayInputStream(ttf));
+        } catch (RuntimeException e) {
+            if (e.getMessage() != null && e.getMessage().contains("Fontconfig")) {
+                throw new PdfUtilRuntimeException(
+                        "AWT could not initialize fonts (fontconfig). On Alpine/Docker install packages "
+                                + "fontconfig and a TTF bundle (e.g. font-dejavu), then run fc-cache. Font: "
+                                + logicalName + ", source: " + sourceDescription + ". Original: " + e.getMessage(),
+                        e);
+            }
+            throw e;
+        }
     }
 
     private List<String> getFilesystemFontSearchDirs() {
